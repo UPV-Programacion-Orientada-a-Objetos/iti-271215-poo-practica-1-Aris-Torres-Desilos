@@ -38,20 +38,27 @@ public class SQLCommand {
                             String newPath = command.substring(4).trim();
                             this.USE(newPath);
                         } else if (command.toUpperCase().startsWith("SHOW TABLES;")) {
+                            System.out.println("En proceso el show tables");
                             SHOW();
                         } else if (command.toUpperCase().startsWith("CREATE")) {
+                            System.out.println("En proceso el Create");
                             CREATE(command);
                         } else if (command.toUpperCase().startsWith("DROP")) {
+                            System.out.println("En proceso el Drop");
                             String tableName = command.substring(10, command.length() - 1).trim();
                             DROP(tableName);
                         } else if (command.toUpperCase().startsWith("INSERT INTO")) {
+                            System.out.println("En proceso el Insert");
                             INSERT(command);
                         } else if (command.toUpperCase().startsWith("SELECT")) {
+                            System.out.println("En proceso el Select");
                             SELECT(command);
                         } else if (command.toUpperCase().startsWith("UPDATE")) {
-                            System.out.println("En proceso...");
+                            System.out.println("En proceso el UPDATE");
+                            UPDATE(command);
                         } else if (command.toUpperCase().startsWith("DELETE")) {
-                            System.out.println("En proceso...");
+                            System.out.println("En proceso el Delete");
+                            DELETE(command);
                         } else {
                             System.out.println("Comando no válido. " +
                                     "\n'exit' para salir, o 'USE $PATH$' para establecer la ruta de trabajo.");
@@ -71,9 +78,7 @@ public class SQLCommand {
     }
 
     public static void main(String[] args) {
-
         new SQLCommand();
-
     }
 
     public void USE(String path) {
@@ -85,11 +90,8 @@ public class SQLCommand {
         File folder = new File(path);
 
         if (!folder.exists()) {
-            boolean created = false;
-            if (!created) {
-                System.out.println("Error al entrar, la carpeta de trabajo " + path + " NO EXISTE.");
-                return;
-            }
+            System.out.println("Error al entrar, la carpeta de trabajo " + path + " NO EXISTE.");
+            return;
         }
 
         currentDatabase = path;
@@ -120,9 +122,7 @@ public class SQLCommand {
             }
         } else {
             System.out.println("Error: Ruta de trabajo no especificada.");
-            return;
         }
-
     }
 
     public void CREATE(String query) {
@@ -232,6 +232,8 @@ public class SQLCommand {
                 for (String value : values) {
                     dataRow.append(value.trim()).append(",");
                 }
+                // Remove the last comma
+                dataRow.setLength(dataRow.length() - 1);
 
                 bufferedWriter.write(dataRow.toString());
                 bufferedWriter.close();
@@ -245,7 +247,7 @@ public class SQLCommand {
         }
     }
 
-    public void deleteData(String query) {
+    public void DELETE(String query) {
         Pattern pattern = Pattern.compile("DELETE FROM (\\w+)(?: WHERE (.+));", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(query);
 
@@ -267,212 +269,171 @@ public class SQLCommand {
                 try (BufferedReader bufferedReader = new BufferedReader(new FileReader(tableFile));
                      BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(tempFile))) {
 
-                    String headerLine = bufferedReader.readLine();
-                    bufferedWriter.write(headerLine);
+                    String header = bufferedReader.readLine();
+                    if (header == null) {
+                        System.out.println("La tabla '" + tableName + "' está vacía.");
+                        return;
+                    }
+
+                    bufferedWriter.write(header);
                     bufferedWriter.newLine();
+
+                    String[] columnNames = header.split(",");
 
                     String line;
                     while ((line = bufferedReader.readLine()) != null) {
-                        String[] columns = line.split(",");
+                        String[] rowData = line.split(",");
 
-                        if (!evaluateWhereCondition(headerLine, columns, whereCondition)) {
+                        boolean shouldDelete = false;
+
+                        if (whereCondition != null && !whereCondition.isEmpty()) {
+                            String[] conditionParts = whereCondition.split("=");
+
+                            if (conditionParts.length == 2) {
+                                String column = conditionParts[0].trim();
+                                String value = conditionParts[1].trim().replaceAll("'", "");
+
+                                int columnIndex = -1;
+                                for (int i = 0; i < columnNames.length; i++) {
+                                    if (columnNames[i].equalsIgnoreCase(column)) {
+                                        columnIndex = i;
+                                        break;
+                                    }
+                                }
+
+                                if (columnIndex >= 0 && rowData[columnIndex].equals(value)) {
+                                    shouldDelete = true;
+                                }
+                            } else {
+                                System.out.println("Error: Sintaxis incorrecta en la condición WHERE.");
+                                return;
+                            }
+                        }
+
+                        if (!shouldDelete) {
                             bufferedWriter.write(line);
                             bufferedWriter.newLine();
                         }
                     }
-                }
 
-                if (tempFile.renameTo(tableFile)) {
-                    System.out.println("Datos eliminados de la tabla '" + tableName + "'.");
-                } else {
-                    System.out.println("Error al eliminar datos de la tabla '" + tableName + "'.");
+                    bufferedReader.close();
+                    bufferedWriter.close();
+
+                    if (tableFile.delete()) {
+                        tempFile.renameTo(tableFile);
+                        System.out.println("Registros eliminados de la tabla '" + tableName + "'.");
+                    } else {
+                        System.out.println("Error al eliminar registros de la tabla '" + tableName + "'.");
+                    }
                 }
             } catch (IOException e) {
-                System.out.println("Error al eliminar datos de la tabla: " + e.getMessage());
+                System.out.println("Error al eliminar registros de la tabla: " + e.getMessage());
             }
         } else {
             System.out.println("Error: Sintaxis incorrecta para DELETE FROM.");
         }
     }
 
-    public boolean evaluateWhereCondition(String headerLine, String[] columns, String condition) {
-        String[] columnNames = headerLine.split(",");
-        String[] conditionComponents = condition.trim().split("\\s+");
-
-        if (conditionComponents.length != 3) {
-            System.out.println("Error: Sintaxis incorrecta para la condición WHERE.");
-            return false;
-        }
-
-        String leftOperand = conditionComponents[0];
-        String operator = conditionComponents[1];
-        String rightOperand = conditionComponents[2];
-
-        int columnIndex = -1;
-        for (int i = 0; i < columnNames.length; i++) {
-            if (columnNames[i].trim().equalsIgnoreCase(leftOperand)) {
-                columnIndex = i;
-                break;
-            }
-        }
-
-        if (columnIndex == -1) {
-            System.out.println("Error: La columna especificada en la condición WHERE no existe.");
-            return false;
-        }
-
-        String columnValue = columns[columnIndex].trim();
-
-        if (operator.equals("=")) {
-            return columnValue.equals(rightOperand);
-        } else if (operator.equals("<>")) {
-            return !columnValue.equals(rightOperand);
-        } else {
-            System.out.println("Error: Operador de comparación no válido en la condición WHERE.");
-            return false;
-        }
-    }
-
     public void SELECT(String query) {
-        Pattern patternWithWhere = Pattern.compile("SELECT (.+) FROM (\\w+) WHERE (.+);", Pattern.CASE_INSENSITIVE);
-        Matcher matcherWithWhere = patternWithWhere.matcher(query);
+        Pattern pattern = Pattern.compile("SELECT (.*?) FROM (\\w+)(?: WHERE (.*?))?;", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = pattern.matcher(query);
 
-        Pattern patternWithoutWhere = Pattern.compile("SELECT (.+) FROM (\\w+);", Pattern.CASE_INSENSITIVE);
-        Matcher matcherWithoutWhere = patternWithoutWhere.matcher(query);
+        if (matcher.find()) {
+            String columnsPart = matcher.group(1).trim();
+            String tableName = matcher.group(2).trim();
+            String whereCondition = matcher.group(3);
 
-        if (matcherWithWhere.find()) {
+            selectedColumns = columnsPart.split(",");
+            for (int i = 0; i < selectedColumns.length; i++) {
+                selectedColumns[i] = selectedColumns[i].trim();
+            }
+
+            String tableFilePath = currentDatabase + File.separator + tableName + ".csv";
+
             try {
-                String columnsPart = matcherWithWhere.group(1).trim();
-                String tableName = matcherWithWhere.group(2).trim();
-                String whereCondition = matcherWithWhere.group(3);
+                File tableFile = new File(tableFilePath);
 
-                if (whereCondition != null && !whereCondition.isEmpty()) {
-                    String tableFilePath = currentDatabase + File.separator + tableName + ".csv";
-
-                    try {
-                        File tableFile = new File(tableFilePath);
-
-                        if (!tableFile.exists()) {
-                            System.out.println("La tabla '" + tableName + "' no existe.");
-                            return;
-                        }
-
-                        BufferedReader bufferedReader = new BufferedReader(new FileReader(tableFile));
-
-                        String headerLine = bufferedReader.readLine();
-                        String[] columnNames = headerLine.split(",");
-
-                        if (columnsPart.equals("*")) {
-                            System.out.println(headerLine);
-
-                            while ((line = bufferedReader.readLine()) != null) {
-                                try {
-                                    rowData = line.split(",");
-                                    if (evaluateWhereCondition(columnNames, rowData, whereCondition)) {
-                                        System.out.println(line);
-                                    }
-                                } catch (ArrayIndexOutOfBoundsException e) {
-                                    continue;
-                                }
-                            }
-                        } else {
-                            String[] selectedColumns = columnsPart.split(",");
-                            for (String column : selectedColumns) {
-                                System.out.print(column + "\t");
-                            }
-                            System.out.println();
-
-                            String line;
-                            while ((line = bufferedReader.readLine()) != null) {
-                                try {
-                                    rowData = line.split(",");
-                                    if (evaluateWhereCondition(columnNames, rowData, whereCondition)) {
-                                        for (String columnName : selectedColumns) {
-                                            int columnIndex = Arrays.asList(columnNames).indexOf(columnName.trim());
-                                            if (columnIndex >= 0) {
-                                                System.out.print(rowData[columnIndex] + "\t");
-                                            } else {
-                                                System.out.print("\t");
-                                            }
-                                        }
-                                        System.out.println();
-                                    }
-                                } catch (ArrayIndexOutOfBoundsException e) {
-                                    continue;
-                                }
-                            }
-                        }
-
-                        bufferedReader.close();
-                    } catch (IOException e) {
-                        System.err.println("Error al seleccionar datos de la tabla: " + e.getMessage());
-                    }
-                } else {
-                    System.out.println("Error: Falta la cláusula WHERE en la consulta SELECT.");
+                if (!tableFile.exists()) {
+                    System.out.println("La tabla '" + tableName + "' no existe.");
                     return;
                 }
 
-            } catch (Exception e) {
-                System.err.println("Error al ejecutar SELECT con WHERE: " + e.getMessage());
-            }
-        } else if (matcherWithoutWhere.find()) {
-            try {
-                String columnsPart = matcherWithoutWhere.group(1).trim();
-                String tableName = matcherWithoutWhere.group(2).trim();
-                handleSelectAll(columnsPart, tableName);
-            } catch (Exception e) {
-                System.err.println("Error al ejecutar SELECT sin WHERE: " + e.getMessage());
+                try (BufferedReader bufferedReader = new BufferedReader(new FileReader(tableFile))) {
+                    String header = bufferedReader.readLine();
+                    if (header == null) {
+                        System.out.println("La tabla '" + tableName + "' está vacía.");
+                        return;
+                    }
+
+                    String[] columnNames = header.split(",");
+
+                    Map<String, Integer> columnIndexMap = new HashMap<>();
+                    for (int i = 0; i < columnNames.length; i++) {
+                        columnIndexMap.put(columnNames[i].trim(), i);
+                    }
+
+                    List<Integer> selectedColumnIndices = new ArrayList<>();
+                    if (columnsPart.equals("*")) {
+                        for (int i = 0; i < columnNames.length; i++) {
+                            selectedColumnIndices.add(i);
+                        }
+                    } else {
+                        for (String column : selectedColumns) {
+                            Integer index = columnIndexMap.get(column);
+                            if (index == null) {
+                                System.out.println("Error: La columna '" + column + "' no existe.");
+                                return;
+                            }
+                            selectedColumnIndices.add(index);
+                        }
+                    }
+
+                    String line;
+                    while ((line = bufferedReader.readLine()) != null) {
+                        String[] rowData = line.split(",");
+
+                        boolean matchesCondition = true;
+                        if (whereCondition != null && !whereCondition.isEmpty()) {
+                            String[] conditionParts = whereCondition.split("=");
+                            if (conditionParts.length == 2) {
+                                String column = conditionParts[0].trim();
+                                String value = conditionParts[1].trim().replaceAll("'", "");
+
+                                Integer index = columnIndexMap.get(column);
+                                if (index == null || !rowData[index].equals(value)) {
+                                    matchesCondition = false;
+                                }
+                            } else {
+                                System.out.println("Error: Sintaxis incorrecta en la condición WHERE.");
+                                return;
+                            }
+                        }
+
+                        if (matchesCondition) {
+                            List<String> selectedData = new ArrayList<>();
+                            for (int index : selectedColumnIndices) {
+                                selectedData.add(rowData[index]);
+                            }
+                            System.out.println(String.join(", ", selectedData));
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                System.out.println("Error al seleccionar datos de la tabla: " + e.getMessage());
             }
         } else {
             System.out.println("Error: Sintaxis incorrecta para SELECT.");
         }
     }
 
-    public boolean evaluateWhereCondition(String[] columnNames, String[] rowData, String condition) {
-        String[] conditionComponents = condition.trim().split("\\s+");
-
-        if (conditionComponents.length != 3) {
-            System.out.println("Error: Sintaxis incorrecta para la condición WHERE.");
-            return false;
-        }
-
-        String leftOperand = conditionComponents[0];
-        String operator = conditionComponents[1];
-        String rightOperand = conditionComponents[2];
-
-        int columnIndex = -1;
-        for (int i = 0; i < columnNames.length; i++) {
-            if (columnNames[i].trim().equalsIgnoreCase(leftOperand)) {
-                columnIndex = i;
-                break;
-            }
-        }
-
-        if (columnIndex == -1) {
-            System.out.println("Error: La columna especificada en la condición WHERE no existe.");
-            return false;
-        }
-
-        String columnValue = rowData[columnIndex].trim();
-
-        if (operator.equals("=")) {
-            return columnValue.equals(rightOperand);
-        } else if (operator.equals("<>")) {
-            return !columnValue.equals(rightOperand);
-        } else {
-            System.out.println("Error: Operador de comparación no válido en la condición WHERE.");
-            return false;
-        }
-    }
-
-    public void updateData(String query) {
-        Pattern pattern = Pattern.compile("UPDATE (\\w+) SET (\\w+ = .+) WHERE (.+);", Pattern.CASE_INSENSITIVE);
+    public void UPDATE(String query) {
+        Pattern pattern = Pattern.compile("UPDATE (\\w+) SET (.+?)(?: WHERE (.*?))?;", Pattern.CASE_INSENSITIVE);
         Matcher matcher = pattern.matcher(query);
 
         if (matcher.find()) {
             String tableName = matcher.group(1).trim();
-            String setClause = matcher.group(2).trim();
-            String whereCondition = matcher.group(3).trim();
+            String setPart = matcher.group(2).trim();
+            String whereCondition = matcher.group(3);
 
             String tableFilePath = currentDatabase + File.separator + tableName + ".csv";
 
@@ -488,122 +449,86 @@ public class SQLCommand {
                 try (BufferedReader bufferedReader = new BufferedReader(new FileReader(tableFile));
                      BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(tempFile))) {
 
-                    String headerLine = bufferedReader.readLine();
-                    bufferedWriter.write(headerLine);
+                    String header = bufferedReader.readLine();
+                    if (header == null) {
+                        System.out.println("La tabla '" + tableName + "' está vacía.");
+                        return;
+                    }
+
+                    bufferedWriter.write(header);
                     bufferedWriter.newLine();
+
+                    String[] columnNames = header.split(",");
+
+                    Map<String, Integer> columnIndexMap = new HashMap<>();
+                    for (int i = 0; i < columnNames.length; i++) {
+                        columnIndexMap.put(columnNames[i].trim(), i);
+                    }
+
+                    String[] setAssignments = setPart.split(",");
+                    Map<Integer, String> updatedValues = new HashMap<>();
+                    for (String assignment : setAssignments) {
+                        String[] parts = assignment.split("=");
+                        if (parts.length == 2) {
+                            String column = parts[0].trim();
+                            String value = parts[1].trim().replaceAll("'", "");
+
+                            Integer index = columnIndexMap.get(column);
+                            if (index != null) {
+                                updatedValues.put(index, value);
+                            }
+                        } else {
+                            System.out.println("Error: Sintaxis incorrecta en la parte SET.");
+                            return;
+                        }
+                    }
 
                     String line;
                     while ((line = bufferedReader.readLine()) != null) {
-                        String[] columns = line.split(",");
+                        String[] rowData = line.split(",");
 
-                        if (evaluateWhereCondition(headerLine, columns, whereCondition)) {
-                            applyUpdate(setClause, columns);
-                            bufferedWriter.write(String.join(",", columns));
-                        } else {
-                            bufferedWriter.write(String.join(",", columns));
+                        boolean matchesCondition = true;
+                        if (whereCondition != null && !whereCondition.isEmpty()) {
+                            String[] conditionParts = whereCondition.split("=");
+                            if (conditionParts.length == 2) {
+                                String column = conditionParts[0].trim();
+                                String value = conditionParts[1].trim().replaceAll("'", "");
+
+                                Integer index = columnIndexMap.get(column);
+                                if (index == null || !rowData[index].equals(value)) {
+                                    matchesCondition = false;
+                                }
+                            } else {
+                                System.out.println("Error: Sintaxis incorrecta en la condición WHERE.");
+                                return;
+                            }
                         }
 
+                        if (matchesCondition) {
+                            for (Map.Entry<Integer, String> entry : updatedValues.entrySet()) {
+                                rowData[entry.getKey()] = entry.getValue();
+                            }
+                        }
+
+                        bufferedWriter.write(String.join(",", rowData));
                         bufferedWriter.newLine();
                     }
-                }
 
-                if (tempFile.renameTo(tableFile)) {
-                    System.out.println("Datos actualizados en la tabla '" + tableName + "'.");
-                } else {
-                    System.out.println("Error al actualizar datos en la tabla '" + tableName + "'.");
+                    bufferedReader.close();
+                    bufferedWriter.close();
+
+                    if (tableFile.delete()) {
+                        tempFile.renameTo(tableFile);
+                        System.out.println("Registros actualizados en la tabla '" + tableName + "'.");
+                    } else {
+                        System.out.println("Error al actualizar registros en la tabla '" + tableName + "'.");
+                    }
                 }
             } catch (IOException e) {
-                System.out.println("Error al actualizar datos en la tabla: " + e.getMessage());
+                System.out.println("Error al actualizar registros de la tabla: " + e.getMessage());
             }
         } else {
             System.out.println("Error: Sintaxis incorrecta para UPDATE.");
-        }
-    }
-
-    public void applyUpdate(String setClause, String[] columns) {
-        String[] updateComponents = setClause.split(",");
-
-        for (String updateComponent : updateComponents) {
-            String[] parts = updateComponent.trim().split("=");
-
-            if (parts.length != 2) {
-                System.out.println("Error: Sintaxis incorrecta en la cláusula SET.");
-                return;
-            }
-
-            String columnName = parts[0].trim();
-            String newValue = parts[1].trim();
-
-            int columnIndex = getColumnIndex(columns, columnName);
-
-            if (columnIndex != -1) {
-                columns[columnIndex] = newValue;
-            } else {
-                System.out.println("Error: La columna especificada en la cláusula SET no existe.");
-            }
-        }
-    }
-
-    public int getColumnIndex(String[] columns, String columnName) {
-        for (int i = 0; i < columns.length; i++) {
-            if (columns[i].trim().equalsIgnoreCase(columnName)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    public void handleSelectAll(String columnsPart, String tableName) {
-        String tableFilePath = currentDatabase + File.separator + tableName + ".csv";
-
-        try {
-            File tableFile = new File(tableFilePath);
-            if (!tableFile.exists()) {
-                System.out.println("La tabla '" + tableName + "' no existe.");
-                return;
-            }
-
-            BufferedReader bufferedReader = new BufferedReader(new FileReader(tableFile));
-            String headerLine = bufferedReader.readLine();
-            String[] columnNames = headerLine.split(",");
-            System.out.println("\n");
-
-            String[] selectedColumns = columnsPart.split(",");
-
-            for (String selectedColumn : selectedColumns) {
-                String columnName = selectedColumn.trim();
-                if (!Arrays.asList(columnNames).contains(columnName)) {
-                    System.out.println("Error: La columna '" + columnName + "' no existe en la tabla.");
-                    return;
-                }
-            }
-
-            for (String selectedColumn : selectedColumns) {
-                System.out.print(selectedColumn.trim() + "\t");
-            }
-            System.out.println();
-
-            String line;
-            while ((line = bufferedReader.readLine()) != null) {
-                try {
-                    String[] rowData = line.split(",");
-                    for (String selectedColumn : selectedColumns) {
-                        String columnName = selectedColumn.trim();
-                        int columnIndex = getColumnIndex(columnNames, columnName);
-                        if (columnIndex >= 0) {
-                            System.out.print(rowData[columnIndex] + "\t");
-                        } else {
-                            System.out.print("\t");
-                        }
-                    }
-                    System.out.println();
-                } catch (ArrayIndexOutOfBoundsException e) {
-                }
-            }
-
-            bufferedReader.close();
-        } catch (IOException e) {
-            System.out.println("Error al seleccionar datos de la tabla: " + e.getMessage());
         }
     }
 }
